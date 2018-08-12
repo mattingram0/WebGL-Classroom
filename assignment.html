@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebGL Assignment</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+  </head>
+
+  <body onload="main()">
+
+    <div class="container-fluid" style>
+    <div class="center-align row">
+        <div id="instructions" class="col-6">
+          <h1 id="heading" class="text-muted">WebGL Assignment</h1><br>
+          <p><b>Up </b> Move forward</p>
+          <p><b>Down </b> Move backwards</p>
+          <p><b>Left </b> Rotate anticlockwise</p>
+          <p><b>Right </b> Rotate clockwise </p>
+          <p><b>Space </b> Toggle night/day </p>
+          <p><b>T </b> Toggle floor texture </p>
+          <p><b>L </b> Toggle left point light - Location: [-10.0, 10.0, 30.0] - Color: [0.3, 0.3, 0.3]</p>
+          <p><b>R </b> Toggle right point light - Location: [5.0, 10.0, 10.0] - Color: [0.9, 0.9, 0.9] </p>
+          <p><b>A </b> Toggle ambient lighting - Color: [0.2, 0.2, 0.2] </p>
+          <p><b>[ </b> Open door </p>
+          <p><b>] </b> Close door</p>
+          <p><b>Scroll down </b> Move chair left </p>
+          <p><b>Scroll up </b> Move chair right</p>
+        </div>
+        <div class="col-6">
+          <canvas id="webgl" height="650px" width="650px"> [-] Browser Does Not Support WebGL </canvas>
+        </div>
+    </div>
+    </div>
+
+    <script src="lib/webgl-utils.js"></script>
+    <script src="lib/webgl-debug.js"></script>
+    <script src="lib/cuon-utils.js"></script>
+    <script src="lib/cuon-matrix.js"></script>
+    <script>
+      //Define our global variables here, for access across all files and ease of use
+
+      var g_normalMatrix = new Matrix4();                               // Coordinate transformation matrix for normals
+      var g_modelMatrix = new Matrix4();                                // Coordinate model (transformation) matrix
+      var g_mvpMatrix = new Matrix4();                                  // Coordinate model, view, projection matrix
+      var g_matrixStack = [];                                           // Array for storing a matrix
+      var g_useTextures = false;                                        // Texture toggle
+      var g_useRightLight = true;                                       // Right light toggle
+      var g_useLeftLight = false;                                       // Left light toggle
+      var g_useAmbientLight = true;                                     // Ambient light toggle
+      var g_dayColor = new Float32Array([1.0, 1.0, 1.0, 1.0]);          // Background color - daytime
+      var g_nightColor = new Float32Array([0.13, 0.19, 0.25, 1.0]);
+      var g_dayColorHex = "#ffffff";       
+      var g_nightColorHex = "#213040";
+      var g_dayOrNight = false;                                         // True == night, False == day
+
+    </script>
+    <script src="js/draw.js"></script>
+    <script src="js/setup.js"></script>
+    <script src="js/event.js"></script>
+    <script src="js/init.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+
+  <script id="vertexShader" type="x-shader/x-vertex">
+    precision mediump float;
+
+    attribute vec4 a_Position;
+    attribute vec4 a_Normal;
+    attribute vec2 a_TexCoords;
+
+    uniform vec4 u_Color;                          
+    uniform mat4 u_MvpMatrix;
+    uniform mat4 u_NormalMatrix;
+    uniform mat4 u_ModelMatrix;       
+
+    varying vec4 v_Color;
+    varying vec3 v_Position;
+    varying vec3 v_Normal;
+    varying vec2 v_TexCoords;
+
+    void main(){
+      gl_Position = u_MvpMatrix * a_Position;                   
+      v_Position = vec3(u_ModelMatrix * a_Position);           
+      v_Normal = normalize(vec3(u_NormalMatrix * a_Normal));   
+      v_Color = u_Color;                                      
+      v_TexCoords = a_TexCoords;
+    }
+  </script>
+
+  <script id="fragmentShader" type="x-shader/x-fragment">
+    precision mediump float;
+
+    uniform bool u_UseRightLight;
+    uniform bool u_UseLeftLight;
+    uniform bool u_UseAmbientLight;
+
+    uniform vec3 u_RightPointLightPosition; 
+    uniform vec3 u_RightPointLightColor;
+    uniform vec3 u_LeftPointLightPosition; 
+    uniform vec3 u_LeftPointLightColor;     
+    uniform vec3 u_AmbientLightColor;
+    uniform bool u_UseTextures;                               
+    uniform sampler2D u_Sampler;                           
+
+    varying vec4 v_Color;
+    varying vec3 v_Position;
+    varying vec3 v_Normal;
+    varying vec2 v_TexCoords;
+
+    void main() {                                          
+      vec3 normal;                                                
+      vec3 rightLightDirection;
+      vec3 rightDiffuse;
+      vec3 leftLightDirection;
+      vec3 leftDiffuse;
+      vec3 ambient;
+      vec3 totalLight = vec3(0.0, 0.0, 0.0);
+      vec4 texColor;
+      float rightAngle;
+      float leftAngle;
+
+      normal = normalize(v_Normal);                              
+      rightLightDirection = normalize(u_RightPointLightPosition - v_Position);  
+      leftLightDirection = normalize(u_LeftPointLightPosition - v_Position);
+
+      rightAngle = max(dot(normal, rightLightDirection), 0.0);             
+      leftAngle = max(dot(normal, leftLightDirection), 0.0);
+
+      if (u_UseTextures){
+        texColor = texture2D(u_Sampler, v_TexCoords);      
+        rightDiffuse = u_RightPointLightColor * texColor.rgb * rightAngle;
+        leftDiffuse = u_LeftPointLightColor * texColor.rgb * leftAngle;
+      } else {
+        rightDiffuse = u_RightPointLightColor * v_Color.rgb * rightAngle;
+        leftDiffuse = u_LeftPointLightColor * v_Color.rgb * leftAngle;
+      }
+
+      ambient = u_AmbientLightColor * v_Color.rgb;      
+
+      if(u_UseRightLight){
+        totalLight += rightDiffuse;
+      }
+      if(u_UseLeftLight){
+        totalLight += leftDiffuse;
+      }
+      if(u_UseAmbientLight){
+        totalLight += ambient;
+      }
+
+      gl_FragColor = vec4(totalLight, v_Color.a); 
+    }
+  </script>
+</html>
